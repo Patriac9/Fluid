@@ -7,7 +7,8 @@ find_package(Vulkan REQUIRED)
 
 add_library(Fluid STATIC
         src/window.cpp
-        include/window.h)
+        include/window.h
+        src/device_manager.cpp)
 target_include_directories(Fluid PUBLIC ${CMAKE_SOURCE_DIR}/third_party
         ${CMAKE_SOURCE_DIR}/third_party/glfw-3.4/include
         include/)

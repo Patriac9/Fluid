@@ -17,5 +17,10 @@ public:
     void init();
 
 private:
+    window_cfg win_cfg = {false, false,
+        800,600, "vulkan triangle", nullptr,nullptr
+    };
+
+private:
     Fluid::window main_window;
 };

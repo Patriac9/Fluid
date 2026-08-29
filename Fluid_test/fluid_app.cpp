@@ -7,12 +7,17 @@
 #include <iostream>
 #include <ostream>
 
-fluid_test::fluid_test() : main_window(800,600, "vulkan triangle", false, false) {
+fluid_test::fluid_test() : main_window(win_cfg) {
 
 }
 
 void fluid_test::init() {
-    main_window.Init("vulkan triangle");
+    application_cfg app_cfg;
+    app_cfg.app_name = "fluid_test";
+    app_cfg.engine_name = "fluid_test";
+    app_cfg.app_version = std::array<uint32_t, 3>{1,0,0};
+    app_cfg.engine_version = std::array<uint32_t, 3>{1,0,0};
+    main_window.Init(app_cfg);
 }
 
 void fluid_test::run() {
@@ -21,5 +26,6 @@ void fluid_test::run() {
     }catch (std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+    main_window.destroy();
     return;
 }
