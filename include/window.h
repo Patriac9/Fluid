@@ -1,64 +1,68 @@
-//
-// Created by Frank Zha on 8/3/26.
-//
-
-#ifndef FLUID_WINDOW_H
-#define FLUID_WINDOW_H
+#pragma once
+#ifndef GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_NONE
+#endif
 #include <GLFW/glfw3.h>
-#include <string>
+#include "fluid/ui.h"
 #include <array>
-#include <exception>
-#include <vector>
 #include <cstdint>
-#include <vulkan/vulkan.h>
+#include <memory>
+#include <string>
 
 struct window_cfg {
-    bool fullscreen;
-    bool resizable;
-    uint32_t width;
-    uint32_t height;
-    std::string window_title;
-    GLFWmonitor* monitor;
-    GLFWwindow* share;
+    bool fullscreen = false;
+    bool resizable = true;
+    uint32_t width = 1440;
+    uint32_t height = 960;
+    std::string window_title = "Fluid";
+    GLFWmonitor *monitor = nullptr;
+    GLFWwindow *share = nullptr;
+    bool visible = true;
 };
-
 struct application_cfg {
-    std::string app_name;
-    std::array<uint32_t,3> app_version;
-    std::string engine_name;
-    std::array<uint32_t,3> engine_version;
+    std::string app_name = "Fluid";
+    std::array<uint32_t, 3> app_version{1, 0, 0};
+    std::string engine_name = "Fluid";
+    std::array<uint32_t, 3> engine_version{1, 0, 0};
 };
 namespace Fluid {
-    class window {
-        public:
-        window(window_cfg cfg);
-        ~window();
-        void Init(const application_cfg &app_cfg);
-        void destroy();
+class window {
+  public:
+    explicit window(window_cfg cfg = {});
+    virtual ~window();
+    window(const window &) = delete;
+    window &operator=(const window &) = delete;
+    window(window &&) = delete;
+    window &operator=(window &&) = delete;
+    void Init(const application_cfg &app_cfg = {});
+    void destroy();
+    void loop();
+    Ui &ui();
+    const InputState &input() const;
+    GLFWwindow *native_handle() const;
+    float width() const;
+    float height() const;
+    float delta_time() const;
+    double elapsed_time() const;
+    const std::string &device_name() const;
+    void set_frame_limit(uint32_t frames);
+    void screenshot(const std::string &path);
+    // GUI is always MSAA when the device supports it. The flags below apply to every
+    // 3D view in this window; ray tracing and DLSS are ignored for 2D drawing.
+    void set_scene_aa(bool enabled);
+    bool scene_aa() const;
+    void set_ray_tracing(bool enabled);
+    bool ray_tracing() const;
+    bool ray_tracing_available() const;
+    void set_dlss(bool enabled);
+    bool dlss() const;
+    bool dlss_available() const;
 
-        void loop();
+  protected:
+    virtual void tick();
 
-
-    private:
-        VkInstance instance;
-        GLFWwindow* app_window;
-        bool check_validation_layers_support();
-        std::vector<const char*> get_required_extensions();
-
-        const std::vector<const char*> validation_layers = {
-            "VK_LAYER_KHRONOS_validation"
-        };
-
-#ifdef NDEBUG
-        const bool enable_validation_layers = true;
-#else
-        const bool enable_validation_layers = true;
-#endif
-
-    protected:
-        virtual void tick();
-
-    };
-}
-
-#endif //FLUID_WINDOW_H
+  private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+} // namespace Fluid

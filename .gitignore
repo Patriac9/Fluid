@@ -1,0 +1,65 @@
+# CMake 构建目录与源码内配置产物
+/build*/
+/out/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/install_manifest.txt
+/CTestTestfile.cmake
+/Testing/
+compile_commands.json
+CMakeUserPresets.json
+
+# 编译器、链接器与可执行文件
+*.obj
+*.o
+*.lo
+*.pdb
+*.idb
+*.ilk
+*.pch
+*.exp
+*.lib
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# glslc 编译出的 SPIR-V（源码着色器在 shaders/）
+*.spv
+
+# Visual Studio
+/.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.aps
+*.ncb
+ipch/
+
+# CLion / VS Code / Cursor 本地配置
+/.idea/
+/.vscode/
+/.cursor/
+
+# Fluid Studio 运行时截图与示范样例
+/snapshots/
+*.ppm
+/docs/fluid-studio.png
+/examples/
+
+
+# Python 绑定的本地环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 操作系统杂项
+.DS_Store
+Thumbs.db
+Desktop.ini

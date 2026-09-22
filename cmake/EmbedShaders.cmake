@@ -1,0 +1,8 @@
+file(WRITE "${OUTPUT}" "#pragma once\nnamespace Fluid::Embedded {\n")
+foreach(NAME ui.vert ui.frag scene.vert scene.frag scene_rt.frag blit.vert blit.frag fullscreen.vert upscale.frag)
+    file(READ "${SHADER_DIR}/${NAME}.spv" BYTES HEX)
+    string(REPLACE "." "_" SYMBOL "${NAME}")
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," BYTES "${BYTES}")
+    file(APPEND "${OUTPUT}" "inline constexpr unsigned char ${SYMBOL}[] = {${BYTES}};\n")
+endforeach()
+file(APPEND "${OUTPUT}" "}\n")

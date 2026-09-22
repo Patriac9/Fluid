@@ -1,0 +1,7 @@
+# ELF version script: export only the C ABI. GNU ld and LLD.
+FLUID_0 {
+    global:
+        fluid_*;
+    local:
+        *;
+};
