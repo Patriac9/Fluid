@@ -1,18 +1,22 @@
 # Fluid
 
-A native C++20 GUI library with a Vulkan renderer and embedded, depth-tested 3D views. **FluidTest** is the interactive **Fluid Studio** example: a playground for the library's controls, typography, animation, and model rendering.
+An immediate-mode UI library in C++20 and Vulkan. Two-dimensional controls and a depth-buffered 3D viewport share one window. Shaders are compiled into the library at build time, so a shipped program does not need a `shaders/` directory.
 
-![Fluid Studio rendering a torus knot](docs/fluid-studio.png)
+`Fluid_test` is the companion Fluid Studio. It exercises controls, text, animation, and models. It has its own CMake project and links the static library `Fluid::Fluid`.
 
-## Build and run
+## Requirements
 
-Requirements:
+To compile:
 
-- CMake 3.20 or newer and a C++20 compiler.
-- The Vulkan SDK, including `glslc`, and a Vulkan-capable graphics driver.
-- On Linux, the development packages required by GLFW's enabled X11/Wayland backends. On macOS, a Vulkan implementation such as MoltenVK.
+- CMake 3.20 or newer, and a C++20 compiler.
+- The [Vulkan SDK](https://vulkan.lunarg.com/), including `glslc`. Set `VULKAN_SDK` before configuring.
+- A GPU and driver that can run Vulkan.
 
-GLFW, GLM, the font baker, and the PNG writer are already in `third_party`; the build does not download dependencies. Compiled shaders are embedded in the library, so the executable can be moved without a shader folder.
+Linux also needs the X11 or Wayland development packages GLFW uses. macOS needs a Vulkan implementation such as MoltenVK. GLFW, GLM, font rasterization, and PNG writing live in `third_party`. The build does not download anything else.
+
+The SDK is a compile-time dependency (headers, `vulkan-1.lib`, and `glslc`). A shipped binary does not include the SDK. At run time it uses the loader that ships with the driver. On Windows, executables and the shared library `FluidC` copy `vulkan-1.dll` next to themselves after the build. The static library `Fluid` does not.
+
+## Build the library and tests
 
 ```sh
 cmake -S . -B build
@@ -20,29 +24,42 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-Fluid Studio lives in `Fluid_test` and links the static `Fluid` library:
+The defaults build the static library `Fluid::Fluid`, the C API shared library `Fluid::C`, and the CPU tests (models, UI, and the C API), which do not open a window. Window tests that need a GPU and a desktop are off unless you pass `-DFLUID_BUILD_GPU_TESTS=ON`. When embedding Fluid in another project, pass `-DFLUID_BUILD_TESTS=OFF` and `-DFLUID_BUILD_SHARED=OFF`.
+
+Single-config generators write libraries into `build/`. Visual Studio multi-config generators write them into directories such as `build/Release/`. If the CMake on `PATH` is older than the installed Visual Studio, use the CMake that ships with Visual Studio.
+
+## Fluid Studio
+
+Configure it separately from the library:
 
 ```sh
 cmake -S Fluid_test -B Fluid_test/build
 cmake --build Fluid_test/build --config Release --parallel
 ```
 
-Run `Fluid_test/build/Release/FluidTest.exe` with a Visual Studio generator, or `Fluid_test/build/FluidTest` with a single-configuration generator. If your CMake version predates your installed Visual Studio, use the newer CMake bundled with Visual Studio or a supported Ninja toolchain.
+The Visual Studio generator runs `Fluid_test/build/Release/FluidTest.exe`. A single-config generator runs `Fluid_test/build/FluidTest`.
 
-## Explore Fluid Studio
+Four pages:
 
-- **Overview:** select a torus knot, sphere, torus, or cube; drag the viewport to orbit and scroll to zoom. Edit the material color, roughness, metallic value, and exposure. Toggle rotation, the ground grid, wireframe, 3D anti-aliasing, ray tracing, and DLSS. Reset the camera at any time. GUI anti-aliasing is always on when the GPU supports MSAA.
-- **Bring your own model:** drop a Wavefront `.obj` file onto the window, enter its path in Scene properties, or launch with `--model path/to/model.obj`. The importer handles normals, negative indices, and concave polygon faces, and centers and scales the geometry. Material libraries and textures are not imported.
-- **Components:** try buttons, switches, editable text, sliders, and progress indicators. Values are shared with the overview. Use Tab/Shift+Tab to move focus, Enter/Space to activate controls, and arrow keys to adjust sliders.
-- **Typography:** edit a live type sample and change its size.
-- **Motion:** pause, restart, and adjust a time-based 2D animation.
-- The top bar switches light/dark appearance and saves PNG snapshots into `snapshots/` relative to the working directory. Scroll the properties panel when the window is short.
+- **Overview**: a torus knot, sphere, torus, or cube. Drag in the viewport to orbit and scroll to zoom. Change color, roughness, metallic, and exposure, and toggle rotation, the ground grid, wireframe, 3D antialiasing, ray tracing, and upscaling. The interface itself uses MSAA whenever the GPU supports it.
+- **Components**: buttons, toggles, a text field, a slider, and a progress bar. Tab and Shift+Tab move focus, Enter or Space activates a control, and the arrow keys adjust the slider.
+- **Typography**: edit a passage and change its size.
+- **Motion**: pause, replay, and scrub a time-based 2D animation.
 
-An original flat-shaded sample is included at `assets/models/crystal.obj` for trying the importer.
+The top bar switches between dark and light themes and writes a PNG snapshot into `snapshots/` in the working directory. When the window is short, the property panel scrolls. Drop a Wavefront `.obj` onto the window, type a path in the scene properties, or pass `--model` on the command line. Import reads normals, negative indices, and concave polygons, then centers the model and scales it to a fixed size. Material libraries and textures are not imported.
 
-## Use the library
+```sh
+FluidTest --frames 4 --hidden --screenshot fluid-studio.png
+FluidTest --page components --frames 4 --hidden --screenshot components.png
+FluidTest --smoke-test --hidden --screenshot smoke.png
+FluidTest --help
+```
 
-Link the `Fluid::Fluid` CMake target and include `<fluid/fluid.h>`. `Fluid::window` owns the native window, renderer, font atlas, and event loop. Override `tick()` to describe each frame using stable widget IDs. UI coordinates are logical window pixels; the renderer scales to the framebuffer on high-DPI displays.
+`--smoke-test` switches pages and models, changes the appearance and wireframe, and resizes the window before it exits. Debug builds enable Vulkan validation when the validation layers are installed.
+
+## Use it from C++
+
+Link `Fluid::Fluid` and include `<fluid/fluid.h>`. `Fluid::window` owns the window, renderer, font atlas, and event loop. Override `tick()` and describe the interface each frame with stable control ids. Coordinates are logical window pixels. The renderer scales them to the framebuffer.
 
 ```cpp
 #include <fluid/fluid.h>
@@ -85,26 +102,39 @@ int main() {
 }
 ```
 
-Widgets record into an internal draw list. Call `line`, `scene`, and `push_clip` when a control is not enough. Mesh objects referenced by a scene must remain alive through the end of the frame. Window operations and the event loop run on the main thread. `destroy()` is idempotent; normal stack destruction handles cleanup automatically.
+A color is four float components in `Fluid::Color`, or `Color::hex(0xRRGGBB, alpha)`. Themes live in `Theme`. `Theme::dark()` and `Theme::light()` are the two defaults.
 
-Text uses an antialiased RGBA font atlas. Fluid selects installed Segoe UI, Arial, DejaVu Sans, or Liberation Sans fonts, with an embedded fallback. It includes Latin, Greek, Cyrillic, punctuation, and arrows when the selected font supports them. UTF-8 editing is supported; complex text shaping, IME composition, and platform accessibility bridges are not implemented yet.
+Controls record drawing in an internal list. Callers do not touch that list. A mesh pointer must stay alive until the end of the frame. The window and the event loop run on the main thread. `destroy()` may be called more than once, and the object also cleans itself up when it leaves scope.
 
-## Validation and captures
+### Controls
 
-The CPU test executables cover geometry, OBJ parsing, camera limits, UI input, keyboard focus, and draw-list clipping without opening a window. Rendering checks require a graphics device and a desktop session, including with `--hidden`.
+Controls that have a background can be a rectangle, a circle, or a rounded rectangle, and can take a vertical gradient. When an image is set, it replaces the solid fill and the background color tints it.
 
-```sh
-FluidTest --frames 4 --hidden --screenshot fluid-studio.png
-FluidTest --page components --frames 4 --hidden --screenshot components.png
-FluidTest --smoke-test --hidden --screenshot smoke.png
-```
+| Call | What it does |
+| --- | --- |
+| `button` | A button. The simple overloads use the theme. `ButtonStyle` sets the background, gradient, image, border, alignment, padding, radius, and font size. |
+| `toggle` / `slider` / `text_field` / `progress` | A switch, a slider, a single-line field, and a progress bar. |
+| `panel` | A panel with a shadow and a border. The fill comes from the theme. |
+| `selection_list` | A vertical list of choices. Selected and idle rows have their own background and text styles. Activation writes the index back. |
+| `backgrounded_text` | One background and one line of text. The background can be a solid color, a gradient, or an image. |
+| `label` | Text at a position, in the theme color or a color you pass. |
+| `line` | A line segment. |
+| `push_clip` / `pop_clip` | Clip later drawing. |
+| `scene` | Draw a 3D mesh inside a rectangle. |
+| `hit` / `hovered` | A click with a stable id, or a query for whether the pointer is over a rectangle. |
 
-The smoke run switches pages and primitives, exercises light appearance and wireframe, and resizes the swapchain before capturing the final overview. In debug builds the renderer uses Vulkan validation when the layer is installed. Run `FluidTest --help` for all options.
+`BackgroundShape` is `rectangle`, `circle`, or `rounded_rectangle`. A circle on a non-square area is a capsule. Text alignment is `TextAlign::left`, `center`, or `right`.
 
-To include GPU lifecycle, resizing, screenshot, showcase, and OBJ rendering checks in CTest, configure with `-DFLUID_BUILD_GPU_TESTS=ON`. This option is off by default so headless CI does not require a desktop. Set `FLUID_BUILD_EXAMPLE=OFF` or `FLUID_BUILD_TESTS=OFF` when embedding the library in another project.
+### Text and images
 
-The previous unused `device_manager` placeholder has been replaced by the renderer's surface-aware graphics-device selection. The original `window_cfg`, `application_cfg`, `Init()`, `loop()`, and `destroy()` entry points are retained; `window_cfg::share` is ignored because Vulkan windows do not share OpenGL contexts.
+Glyphs are rasterized on demand at the requested pixel size and drawn on pixel boundaries. The library looks for Segoe UI, Arial, DejaVu Sans, and Liberation Sans, then falls back to an embedded font. `set_typeface` loads your own TTF. The fonts that ship those glyphs cover Latin, Greek, Cyrillic, and punctuation, and text fields edit UTF-8. Complex shaping, IME composition, and a system accessibility bridge are not implemented.
 
-This is an initial implementation with an immediate-mode API, explicit layout, and a single-frame renderer. GUI uses MSAA automatically. Optional window-wide 3D MSAA, hardware ray tracing, and DLSS-quality spatial upscaling apply to every embedded scene in that window. It is intended as a practical foundation for native tools and applications; it does not yet provide docking, automatic layout, texture/material import, or a retained widget tree.
+`add_image` takes RGBA pixels. On Windows, `add_image_file` reads common image files through WIC. On other platforms, decode the file yourself and pass the pixels to `add_image`. The atlas is uploaded to the GPU on the next frame.
 
-Verified on Windows with MSVC in Debug and Release on an NVIDIA RTX 4070: all five test groups pass, with no Vulkan validation warnings during the Debug checks. Linux and macOS execution have not been verified.
+## C API
+
+`FLUID_BUILD_SHARED` defaults to on and produces the shared-library target `Fluid::C`. Declarations are in `include/fluid/capi.h`. On the C side, shape values are `0` for a rounded rectangle, `1` for a rectangle, and `2` for a circle. Alignment is `0` for center, `1` for left, and `2` for right. Read the last error with `fluid_last_error()`.
+
+## What is not here yet
+
+This is an immediate-mode implementation: the caller supplies coordinates and submits the interface once per frame. It is a base for a native tool. Docking, automatic layout, material and texture import, and a retained widget tree are not included. 3D antialiasing, hardware ray tracing, and upscaling apply only to the 3D viewport, not to the 2D interface.
