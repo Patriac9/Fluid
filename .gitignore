@@ -53,7 +53,6 @@ ipch/
 # Fluid Studio 运行时截图与示范样例
 /snapshots/
 *.ppm
-/docs/fluid-studio.png
 /examples/
 
 
