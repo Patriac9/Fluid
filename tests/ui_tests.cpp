@@ -1,5 +1,7 @@
 #include "fluid/ui.h"
+#include "draw_list.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -222,7 +224,7 @@ void test_text(Fluid::Ui &ui) {
 
 void test_draw_list(Fluid::Ui &ui) {
     begin(ui);
-    auto &draw = ui.draw();
+    auto &draw = fluid_draw_list(ui);
     draw.rect({0, 0, 80, 80}, Fluid::Color::hex(0xFFFFFF), 8);
     draw.circle({40, 40}, 10, Fluid::Color::hex(0xFF0000));
     require(draw.commands.size() == 1, "Adjacent compatible geometry was not batched");
@@ -262,6 +264,121 @@ void test_draw_list(Fluid::Ui &ui) {
             "Font atlas is not RGBA8");
     require(ui.font().measure("Hello", 16) > ui.font().measure("Hello", 8), "Font metrics do not scale");
     require(ui.font().measure("\xFF", 14) > 0, "Malformed UTF-8 did not use fallback glyph");
+    const auto small = ui.font().glyph('A', false, 12);
+    const auto large = ui.font().glyph('A', false, 64);
+    require(small.advance > 0 && large.advance > small.advance * 2, "Large type did not grow");
+    require(small.u0 != large.u0 || small.v0 != large.v0, "Small and large sizes share one baked glyph");
+    const auto exact = ui.font().glyph('A', false, 13);
+    const float texel_width = (exact.u1 - exact.u0) * ui.font().width();
+    require(std::abs(texel_width - (exact.x1 - exact.x0)) < 0.01f, "13px glyph is not rasterized at its pixel size");
+}
+
+void test_button_style(Fluid::Ui &ui) {
+    const unsigned char pixel[] = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+    const auto image = ui.add_image(pixel, 2, 2);
+    require(image.id >= 0, "Image was not packed");
+    Fluid::Vec2 uv0, uv1;
+    require(ui.font().image_uv(image, uv0, uv1), "Packed image has no coordinates");
+    const Fluid::Rect bounds{20, 30, 160, 48};
+    Fluid::ButtonStyle left;
+    left.align = Fluid::TextAlign::left;
+    left.background = Fluid::Color::hex(0x3366CC);
+    left.padding = 16;
+    begin(ui);
+    ui.button("left", bounds, "Left", left);
+    float left_x = 1e9f;
+    const auto white = ui.font().white_uv();
+    for (const auto &vertex : fluid_draw_list(ui).vertices) {
+        if (vertex.uv.x != white.x || vertex.uv.y != white.y)
+            left_x = std::min(left_x, vertex.position.x);
+    }
+    ui.end_frame();
+    Fluid::ButtonStyle right = left;
+    right.align = Fluid::TextAlign::right;
+    begin(ui);
+    ui.button("right", bounds, "Left", right);
+    float right_x = 1e9f;
+    float text_top = 1e9f, text_bottom = -1e9f;
+    for (const auto &vertex : fluid_draw_list(ui).vertices) {
+        if (vertex.uv.x == white.x && vertex.uv.y == white.y)
+            continue;
+        right_x = std::min(right_x, vertex.position.x);
+        text_top = std::min(text_top, vertex.position.y);
+        text_bottom = std::max(text_bottom, vertex.position.y);
+    }
+    ui.end_frame();
+    require(right_x > left_x + 20, "Right-aligned label did not move");
+    const float mid = (text_top + text_bottom) * 0.5f;
+    require(std::abs(mid - (bounds.y + bounds.h * 0.5f)) < 3.0f, "Button label is not vertically centered");
+    Fluid::ButtonStyle pictured = left;
+    pictured.image = image;
+    pictured.align = Fluid::TextAlign::center;
+    begin(ui);
+    require(!ui.button("picture", bounds, "Picture", pictured), "Idle image button clicked");
+    bool saw_image = false;
+    for (const auto &vertex : fluid_draw_list(ui).vertices) {
+        if (vertex.uv.x >= uv0.x && vertex.uv.x <= uv1.x && vertex.uv.y >= uv0.y && vertex.uv.y <= uv1.y)
+            saw_image = true;
+    }
+    ui.end_frame();
+    require(saw_image, "Image button did not sample its background");
+    bool missing = false;
+    try {
+        ui.set_typeface("missing-fluid-font.ttf");
+    } catch (const std::runtime_error &) {
+        missing = true;
+    }
+    require(missing, "Missing font file was accepted");
+    require(ui.font().measure("Hello", 16) > 0, "Font atlas was lost after a rejected typeface");
+}
+
+void test_backgrounded_text_and_list(Fluid::Ui &ui) {
+    const Fluid::Rect chip{40, 50, 120, 32};
+    Fluid::BackgroundedTextStyle style;
+    style.background = Fluid::Color::hex(0x224466);
+    style.text = Fluid::Color::hex(0xFFFFFF);
+    style.align = Fluid::TextAlign::center;
+    style.font_size = 14;
+    begin(ui);
+    ui.backgrounded_text(chip, "LIVE", style);
+    float top = 1e9f, bottom = -1e9f;
+    const auto white = ui.font().white_uv();
+    for (const auto &vertex : fluid_draw_list(ui).vertices) {
+        if (vertex.uv.x == white.x && vertex.uv.y == white.y)
+            continue;
+        top = std::min(top, vertex.position.y);
+        bottom = std::max(bottom, vertex.position.y);
+    }
+    ui.end_frame();
+    require(std::abs((top + bottom) * 0.5f - (chip.y + chip.h * 0.5f)) < 3.0f,
+            "Backgrounded text is not vertically centered");
+
+    const std::string_view items[]{"Overview", "Components", "Typography"};
+    Fluid::SelectionListStyle list;
+    list.item.align = Fluid::TextAlign::left;
+    list.item.padding = 16;
+    list.item.text = Fluid::Color::hex(0xAAAAAA);
+    list.selected = list.item;
+    list.selected.background = Fluid::Color::hex(0x334455);
+    list.selected.text = Fluid::Color::hex(0xFFFFFF);
+    list.hover_background = Fluid::Color::hex(0x222222);
+    int selected = 0;
+    Fluid::InputState input;
+    input.mouse = {80, 50 + 36 + 8};
+    input.mouse_pressed = true;
+    input.mouse_down = true;
+    begin(ui, input);
+    require(!ui.selection_list("pages", {40, 50, 180, 3 * 36 + 2 * 6}, 36, items, selected, list),
+            "Selection list clicked before release");
+    ui.end_frame();
+    input.mouse_pressed = false;
+    input.mouse_down = false;
+    input.mouse_released = true;
+    begin(ui, input);
+    require(ui.selection_list("pages", {40, 50, 180, 3 * 36 + 2 * 6}, 36, items, selected, list),
+            "Selection list did not activate a row");
+    ui.end_frame();
+    require(selected == 1, "Selection list did not choose the second row");
 }
 } // namespace
 
@@ -273,6 +390,8 @@ int main() {
         test_focus(ui);
         test_text(ui);
         test_draw_list(ui);
+        test_button_style(ui);
+        test_backgrounded_text_and_list(ui);
         std::cout << "Fluid UI tests passed: pointer capture, keyboard focus, sliders, UTF-8 editing, and "
                      "draw ordering.\n";
         return EXIT_SUCCESS;

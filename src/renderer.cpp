@@ -1,8 +1,10 @@
 #include <vulkan/vulkan.h>
 #include "renderer.h"
+#include "draw_list.h"
 #include "window.h"
 #include "fluid/model.h"
 #include <cstddef>
+#include <cstdint>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <array>
@@ -10,7 +12,6 @@
 #include <cstring>
 #include "fluid_shaders.h"
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 #include <vector>
 #define STB_IMAGE_WRITE_STATIC
@@ -130,6 +131,7 @@ struct Renderer::Impl {
     std::vector<VkImageView> views;
     std::vector<VkFramebuffer> framebuffers;
     Texture atlas, ui_msaa;
+    std::uint64_t atlas_revision = 0;
     VkSampler sampler{};
     VkDescriptorSetLayout descriptor_layout{}, blit_set_layout{}, rt_set_layout{};
     VkDescriptorPool descriptor_pool{}, extra_pool{};
@@ -684,8 +686,12 @@ struct Renderer::Impl {
         if (rt_available)
             load_rt();
     }
-    void create_atlas(const Ui &ui) {
+    void upload_atlas(const Ui &ui) {
         auto &font = ui.font();
+        if (font.width() <= 0 || font.height() <= 0 || font.pixels().empty())
+            throw std::runtime_error("Font atlas is empty");
+        Texture previous = atlas;
+        atlas = {};
         Buffer staging;
         try {
             upload(staging, font.pixels().data(), font.pixels().size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
@@ -713,10 +719,33 @@ struct Renderer::Impl {
             check(vkQueueSubmit(graphics, 1, &submit, VK_NULL_HANDLE), "Upload font atlas");
             check(vkQueueWaitIdle(graphics), "Wait for font upload");
         } catch (...) {
+            destroy_texture(atlas);
+            atlas = previous;
+            previous = {};
             destroy_buffer(staging);
             throw;
         }
         destroy_buffer(staging);
+        destroy_texture(previous);
+        atlas_revision = font.revision();
+        if (descriptor && sampler) {
+            VkDescriptorImageInfo image_info{sampler, atlas.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet = descriptor;
+            write.dstBinding = 0;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = &image_info;
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
+    }
+    void sync_atlas(const Ui &ui) {
+        if (ui.font().revision() == atlas_revision && atlas.view)
+            return;
+        upload_atlas(ui);
+    }
+    void create_atlas(const Ui &ui) {
+        upload_atlas(ui);
         VkSamplerCreateInfo sc{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         sc.magFilter = sc.minFilter = VK_FILTER_LINEAR;
         sc.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
@@ -1614,6 +1643,7 @@ struct Renderer::Impl {
             extent.height != static_cast<uint32_t>(framebuffer_height))
             create_swapchain();
         check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "Wait for prior frame");
+        sync_atlas(ui);
         uint32_t index = 0;
         VkResult acquired =
             vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &index);
@@ -1623,7 +1653,7 @@ struct Renderer::Impl {
         }
         if (acquired != VK_SUBOPTIMAL_KHR)
             check(acquired, "Acquire swapchain image");
-        upload_draw_data(ui.draw());
+        upload_draw_data(fluid_draw_list(ui));
         bool capture = !screenshot_path.empty();
         if (capture && !transfer_supported)
             throw std::runtime_error("This graphics surface does not support screenshot readback");
@@ -1638,7 +1668,7 @@ struct Renderer::Impl {
         const bool use_rt = ray_tracing && rt_available;
         const bool use_dlss = dlss;
         float sx = static_cast<float>(extent.width) / width, sy = static_cast<float>(extent.height) / height;
-        const auto &draw = ui.draw();
+        const auto &draw = fluid_draw_list(ui);
         const uint32_t scene_count =
             static_cast<uint32_t>(std::min(draw.scenes.size(), static_cast<size_t>(kMaxScenes)));
         for (uint32_t i = 0; i < scene_count; ++i) {

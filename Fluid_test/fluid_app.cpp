@@ -11,6 +11,47 @@ using namespace Fluid;
 constexpr float pi = 3.14159265359f;
 const std::array<Color, 5> swatches{Color::hex(0xB7A6EF), Color::hex(0x83CABC), Color::hex(0xEBC494),
                                     Color::hex(0xE293AD), Color::hex(0xA9C8EA)};
+struct Painter {
+    Ui &ui;
+    void rect(Rect bounds, Color color, float radius = 0) {
+        BackgroundedTextStyle style;
+        style.background = color;
+        style.shape = radius > 0 ? BackgroundShape::rounded_rectangle : BackgroundShape::rectangle;
+        style.radius = radius;
+        ui.backgrounded_text(bounds, "", style);
+    }
+    void gradient(Rect bounds, Color top, Color bottom, float radius = 0) {
+        BackgroundedTextStyle style;
+        style.background = top;
+        style.gradient = bottom;
+        style.shape = radius > 0 ? BackgroundShape::rounded_rectangle : BackgroundShape::rectangle;
+        style.radius = radius;
+        ui.backgrounded_text(bounds, "", style);
+    }
+    void outline(Rect bounds, Color color, float radius = 0) {
+        BackgroundedTextStyle style;
+        style.border = color;
+        style.shape = radius > 0 ? BackgroundShape::rounded_rectangle : BackgroundShape::rectangle;
+        style.radius = radius;
+        ui.backgrounded_text(bounds, "", style);
+    }
+    void line(Vec2 from, Vec2 to, Color color, float thickness = 1) { ui.line(from, to, color, thickness); }
+    void circle(Vec2 center, float radius, Color color) {
+        BackgroundedTextStyle style;
+        style.background = color;
+        style.shape = BackgroundShape::circle;
+        ui.backgrounded_text({center.x - radius, center.y - radius, radius * 2, radius * 2}, "", style);
+    }
+    void text(Vec2 position, std::string_view value, float size, Color color, bool bold = false) {
+        ui.label(position, value, size, color, bold);
+    }
+    void scene(const SceneView &view) { ui.scene(view); }
+    void push_clip(Rect clip) { ui.push_clip(clip); }
+    void pop_clip() { ui.pop_clip(); }
+    float text_width(std::string_view value, float size, bool bold = false) const {
+        return ui.font().measure(value, size, bold);
+    }
+};
 std::string decimal(float value, int precision = 2) {
     std::ostringstream out;
     out << std::fixed << std::setprecision(precision) << value;
@@ -93,16 +134,16 @@ void fluid_test::import_model(const std::string &path) {
     }
 }
 void fluid_test::icon(Vec2 p, int kind, Color c, float s) {
-    auto &d = ui().draw();
+    Painter d{ui()};
     float x = p.x, y = p.y;
     if (kind == 0) {
-        d.outline({x, y, s * .42f, s * .42f}, c, 2, 1.4f);
-        d.outline({x + s * .58f, y, s * .42f, s * .42f}, c, 2, 1.4f);
-        d.outline({x, y + s * .58f, s * .42f, s * .42f}, c, 2, 1.4f);
-        d.outline({x + s * .58f, y + s * .58f, s * .42f, s * .42f}, c, 2, 1.4f);
+        d.outline({x, y, s * .42f, s * .42f}, c, 2);
+        d.outline({x + s * .58f, y, s * .42f, s * .42f}, c, 2);
+        d.outline({x, y + s * .58f, s * .42f, s * .42f}, c, 2);
+        d.outline({x + s * .58f, y + s * .58f, s * .42f, s * .42f}, c, 2);
     } else if (kind == 1) {
-        d.outline({x, y + 1, s, s * .38f}, c, 3, 1.4f);
-        d.outline({x, y + s * .6f, s * .42f, s * .4f}, c, 3, 1.4f);
+        d.outline({x, y + 1, s, s * .38f}, c, 3);
+        d.outline({x, y + s * .6f, s * .42f, s * .4f}, c, 3);
         d.circle({x + s * .8f, y + s * .8f}, s * .2f, c);
     } else if (kind == 2) {
         d.line({x, y + 1}, {x + s, y + 1}, c, 1.5f);
@@ -130,24 +171,17 @@ void fluid_test::icon(Vec2 p, int kind, Color c, float s) {
             d.line({x + s * .5f + std::cos(a) * s * .35f, y + s * .5f + std::sin(a) * s * .35f},
                    {x + s * .5f + std::cos(a) * s * .48f, y + s * .5f + std::sin(a) * s * .48f}, c, 1.4f);
         }
-    } else if (kind == 6) {
-        d.line({x + s * .5f, y}, {x + s * .5f, y + s * .65f}, c, 1.5f);
-        d.line({x + s * .22f, y + s * .4f}, {x + s * .5f, y + s * .68f}, c, 1.5f);
-        d.line({x + s * .78f, y + s * .4f}, {x + s * .5f, y + s * .68f}, c, 1.5f);
-        d.line({x, y + s * .7f}, {x, y + s}, c, 1.5f);
-        d.line({x, y + s}, {x + s, y + s}, c, 1.5f);
-        d.line({x + s, y + s}, {x + s, y + s * .7f}, c, 1.5f);
     }
 }
 void fluid_test::section_title(Vec2 p, const std::string &title, const std::string &description) {
-    auto &d = ui().draw();
+    Painter d{ui()};
     const auto &t = ui().theme();
     d.text(p, title, 29, t.text, true);
     d.text({p.x, p.y + 42}, description, 14, t.muted);
 }
 void fluid_test::topbar(float side) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     d.rect({side, 0, width() - side, 72}, t.background);
     d.line({side, 71}, {width(), 71}, t.border.opacity(.65f));
@@ -166,13 +200,19 @@ void fluid_test::topbar(float side) {
     if (u.button("theme", {right - 201, 18, 36, 36}, ""))
         dark_ = !dark_;
     icon({right - 192, 27}, 5, t.muted, 18);
-    d.rect({right - 302, 23, 87, 26}, t.elevated, 13);
+    BackgroundedTextStyle vulkan;
+    vulkan.background = t.elevated;
+    vulkan.text = t.muted;
+    vulkan.align = TextAlign::left;
+    vulkan.padding = 25;
+    vulkan.radius = 13;
+    vulkan.font_size = 12;
+    u.backgrounded_text({right - 302, 23, 87, 26}, "Vulkan", vulkan);
     d.circle({right - 287, 36}, 3, t.positive);
-    d.text({right - 277, 27}, "Vulkan", 12, t.muted);
 }
 void fluid_test::sidebar(float side) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     d.rect({0, 0, side, height()}, t.panel);
     d.line({side - 1, 0}, {side - 1, height()}, t.border.opacity(.55f));
@@ -182,35 +222,51 @@ void fluid_test::sidebar(float side) {
     d.text({65, 22}, "fluid", 27, t.text, true);
     d.text({125, 32}, "STUDIO", 9, t.muted, true);
     d.text({26, 103}, "PLAYGROUND", 10, t.muted, true);
-    const char *pages[] = {"Overview", "Components", "Typography", "Motion"};
+    const std::string_view pages[]{"Overview", "Components", "Typography", "Motion"};
+    const float nav_y = 130, nav_h = 40, nav_gap = 6;
+    SelectionListStyle nav;
+    nav.gap = nav_gap;
+    nav.item.align = TextAlign::left;
+    nav.item.padding = 43;
+    nav.item.font_size = 14;
+    nav.item.text = t.muted;
+    nav.item.radius = 8;
+    nav.selected = nav.item;
+    nav.selected.background = t.accent.opacity(dark_ ? 0.12f : 0.1f);
+    nav.selected.text = t.accent;
+    nav.selected.bold = true;
+    nav.hover_background = t.elevated;
+    u.selection_list("nav", {14, nav_y, side - 28, 4 * nav_h + 3 * nav_gap}, nav_h, pages, page_, nav);
     for (int i = 0; i < 4; ++i) {
-        Rect r{14, 130 + float(i) * 46, side - 28, 40};
-        bool hovered = u.hovered(r);
-        if (u.hit("nav" + std::to_string(i), r))
-            page_ = i;
-        if (page_ == i) {
-            d.rect(r, t.accent.opacity(dark_ ? .12f : .1f), 8);
-            d.rect({14, r.y + 12, 3, 16}, t.accent, 1.5f);
-        } else if (hovered)
-            d.rect(r, t.elevated, 8);
-        icon({28, r.y + 11}, i, page_ == i ? t.accent : t.muted, 17);
-        d.text({57, r.y + 10}, pages[i], 14, page_ == i ? t.accent : t.muted, page_ == i);
+        const float y = nav_y + i * (nav_h + nav_gap);
+        icon({28, y + (nav_h - 17) * 0.5f}, i, page_ == i ? t.accent : t.muted, 17);
+        if (page_ == i)
+            d.rect({14, y + 12, 3, 16}, t.accent, 1.5f);
     }
     d.line({24, 331}, {side - 24, 331}, t.border.opacity(.6f));
     d.text({26, 358}, "SCENE COLLECTION", 10, t.muted, true);
-    const char *models[] = {"Torus knot", "UV sphere", "Torus", "Cube"};
+    const std::string_view models[]{"Torus knot", "UV sphere", "Torus", "Cube"};
+    const float list_y = 386, list_h = 34, list_gap = 5;
+    SelectionListStyle collection;
+    collection.gap = list_gap;
+    collection.item.align = TextAlign::left;
+    collection.item.padding = 42;
+    collection.item.font_size = 13;
+    collection.item.text = t.muted;
+    collection.item.radius = 7;
+    collection.selected = collection.item;
+    collection.selected.text = t.text;
+    collection.hover_background = t.elevated;
+    if (u.selection_list("collection", {14, list_y, side - 28, 4 * list_h + 3 * list_gap}, list_h, models,
+                         model_index_, collection)) {
+        select_model(model_index_);
+        page_ = 0;
+    }
     for (int i = 0; i < 4; ++i) {
-        Rect r{14, 386 + float(i) * 39, side - 28, 34};
-        if (u.hit("collection" + std::to_string(i), r)) {
-            select_model(i);
-            page_ = 0;
-        }
-        if (u.hovered(r))
-            d.rect(r, t.elevated, 7);
-        icon({29, r.y + 9}, 4, model_index_ == i ? t.accent : t.muted.opacity(.7f), 14);
-        d.text({56, r.y + 8}, models[i], 13, model_index_ == i ? t.text : t.muted);
+        const float y = list_y + i * (list_h + list_gap);
+        icon({29, y + (list_h - 14) * 0.5f}, 4, model_index_ == i ? t.accent : t.muted.opacity(.7f), 14);
         if (model_index_ == i)
-            d.circle({side - 30, r.y + 17}, 3, t.accent);
+            d.circle({side - 30, y + list_h * 0.5f}, 3, t.accent);
     }
     const float y = height() - 181;
     d.gradient({18, y, side - 36, 100}, blend(t.panel, t.accent, .1f), t.panel, 11);
@@ -225,7 +281,7 @@ void fluid_test::sidebar(float side) {
 }
 void fluid_test::mini_components(Rect b) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     float gap = 16, cw = (b.w - gap) / 2;
     u.panel({b.x, b.y, cw, b.h});
@@ -249,7 +305,7 @@ void fluid_test::mini_components(Rect b) {
 }
 void fluid_test::overview(Rect c) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     section_title({c.x, c.y}, "Everything, in its element.",
                   "A native canvas for beautiful interfaces and a new dimension of interaction.");
@@ -257,8 +313,15 @@ void fluid_test::overview(Rect c) {
     Rect card{c.x, c.y + 94, main_w, c.h - 94 - 194};
     u.panel(card, 14);
     d.text({card.x + 20, card.y + 18}, "Scene preview", 15, t.text, true);
-    d.rect({card.x + 137, card.y + 17, 39, 21}, t.positive.opacity(.12f), 5);
-    d.text({card.x + 147, card.y + 20}, "LIVE", 9, t.positive, true);
+    BackgroundedTextStyle live;
+    live.background = t.positive.opacity(0.12f);
+    live.text = t.positive;
+    live.align = TextAlign::center;
+    live.font_size = 9;
+    live.bold = true;
+    live.radius = 5;
+    live.padding = 4;
+    u.backgrounded_text({card.x + 137, card.y + 17, 39, 21}, "LIVE", live);
     if (u.button("solid", {card.x + card.w - 166, card.y + 12, 69, 30}, "Solid", false, !wireframe_))
         wireframe_ = false;
     if (u.button("wire", {card.x + card.w - 91, card.y + 12, 77, 30}, "Wireframe", false, wireframe_))
@@ -289,9 +352,15 @@ void fluid_test::overview(Rect c) {
     scene.grid = grid_;
     d.scene(scene);
     d.push_clip(viewport_);
-    d.rect({viewport_.x + 18, viewport_.y + 18, 112, 27}, t.background.opacity(.55f), 6);
+    BackgroundedTextStyle perspective;
+    perspective.background = t.background.opacity(0.55f);
+    perspective.text = t.text.opacity(0.85f);
+    perspective.align = TextAlign::left;
+    perspective.padding = 24;
+    perspective.font_size = 11;
+    perspective.radius = 6;
+    u.backgrounded_text({viewport_.x + 18, viewport_.y + 18, 112, 27}, "Perspective", perspective);
     d.circle({viewport_.x + 31, viewport_.y + 31.5f}, 3, t.positive);
-    d.text({viewport_.x + 42, viewport_.y + 24}, "Perspective", 11, t.text.opacity(.85f));
     d.text({viewport_.x + 19, viewport_.y + viewport_.h - 30}, "Drag to orbit  /  Scroll to zoom", 11,
            t.muted);
     const float ax = viewport_.x + viewport_.w - 44, ay = viewport_.y + viewport_.h - 42;
@@ -316,7 +385,7 @@ void fluid_test::overview(Rect c) {
 }
 void fluid_test::inspector(Rect b) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     u.panel(b, 14);
     d.push_clip({b.x + 1, b.y + 1, b.w - 2, b.h - 2});
@@ -339,7 +408,7 @@ void fluid_test::inspector(Rect b) {
             swatch_ = i;
         d.circle({r.x + 16, r.y + 16}, 12, swatches[i]);
         if (swatch_ == i) {
-            d.outline({r.x, r.y, 32, 32}, t.text.opacity(.8f), 16, 1.5f);
+            d.outline({r.x, r.y, 32, 32}, t.text.opacity(.8f), 16);
             d.circle({r.x + 16, r.y + 16}, 3, Color::hex(0x292535));
         }
     }
@@ -407,7 +476,7 @@ void fluid_test::inspector(Rect b) {
 }
 void fluid_test::components(Rect c) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     section_title({c.x, c.y}, "Details make the difference.",
                   "A small, expressive set of controls. Every example below is live.");
@@ -455,7 +524,7 @@ void fluid_test::components(Rect c) {
 }
 void fluid_test::typography(Rect c) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     section_title({c.x, c.y}, "Words with room to breathe.",
                   "Crisp, atlas-rendered type with a clear hierarchy and a human touch.");
@@ -490,7 +559,7 @@ void fluid_test::typography(Rect c) {
 }
 void fluid_test::motion(Rect c) {
     auto &u = ui();
-    auto &d = u.draw();
+    Painter d{u};
     const auto &t = u.theme();
     section_title({c.x, c.y}, "An interface with a pulse.",
                   "Time-based motion and layered 2D geometry, drawn by Fluid in real time.");
@@ -510,7 +579,7 @@ void fluid_test::motion(Rect c) {
     float radius = std::min(stage.w * .28f, stage.h * .31f);
     for (int j = 3; j >= 0; --j) {
         float rr = radius * (.52f + float(j) * .23f);
-        d.outline({center.x - rr, center.y - rr, rr * 2, rr * 2}, t.border.opacity(.45f), rr, 1);
+        d.outline({center.x - rr, center.y - rr, rr * 2, rr * 2}, t.border.opacity(.45f), rr);
     }
     for (int i = 0; i < 7; ++i) {
         float angle = motion_time_ * (.35f + float(i % 3) * .1f) + float(i) * pi * 2 / 7;
@@ -573,7 +642,7 @@ void fluid_test::tick() {
         fps_ = fps_ * .95f + std::min(1000.f, 1.f / delta_time()) * .05f;
     for (const auto &path : input().dropped_paths)
         import_model(path);
-    auto &d = ui().draw();
+    Painter d{ui()};
     const auto &t = ui().theme();
     d.rect({0, 0, width(), height()}, t.background);
     const float side = 208;
@@ -591,8 +660,7 @@ void fluid_test::tick() {
     d.line({side, height() - 27}, {width(), height() - 27}, t.border.opacity(.5f));
     d.circle({side + 20, height() - 13}, 3, t.positive);
     d.text({side + 31, height() - 21}, "All systems fluid", 10, t.muted);
-    const auto stats = std::to_string(int(fps_)) + " fps  /  Vulkan renderer  /  " +
-                       std::to_string(d.vertices.size()) + " UI vertices";
+    const auto stats = std::to_string(int(fps_)) + " fps  /  Vulkan renderer";
     d.text({width() - 24 - d.text_width(stats, 10), height() - 21}, stats, 10, t.muted);
     if (float(elapsed_time()) < toast_until_) {
         const float tw = std::min(width() - 80, d.text_width(toast_message_, 13) + 48);

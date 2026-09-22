@@ -45,10 +45,9 @@ class ProbeWindow final : public Fluid::window {
   protected:
     void tick() override {
         ++ticks;
-        auto &draw = ui().draw();
-        draw.rect({0, 0, width(), height()}, Fluid::Color::hex(0x10131A));
-        draw.rect({20, 20, 220, 100}, Fluid::Color::hex(0xB6A2FF), 16);
-        draw.text({36, 50}, "Fluid lifecycle", 22, Fluid::Color::hex(0x18121F), true);
+        ui().panel({0, 0, width(), height()}, 0, Fluid::BackgroundShape::rectangle);
+        ui().panel({20, 20, 220, 100}, 16);
+        ui().label({36, 50}, "Fluid lifecycle", 22, Fluid::Color::hex(0x18121F), true);
         if (resize_ && ticks == 2)
             glfwSetWindowSize(native_handle(), 720, 520);
         if (resize_ && ticks == 4 && !resize_capture.empty())
@@ -72,7 +71,7 @@ class QualityWindow final : public Fluid::window {
         scene.bounds = {0, 0, width(), height()};
         scene.mesh = &cube_;
         scene.grid = false;
-        ui().draw().scene(scene);
+        ui().scene(scene);
     }
 
   private:

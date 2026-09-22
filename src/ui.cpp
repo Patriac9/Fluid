@@ -1,9 +1,9 @@
 #include "fluid/ui.h"
+#include "draw_list.h"
 #include "utf8.h"
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace Fluid {
 namespace {
@@ -112,13 +112,17 @@ void DrawList::append_command(std::uint32_t count) {
 }
 
 void DrawList::triangle(Vec2 a, Vec2 b, Vec2 c, Color ca, Color cb, Color cc) {
+    const Vec2 white = font_ ? font_->white_uv() : Vec2{};
+    triangle_uv(a, b, c, white, white, white, ca, cb, cc);
+}
+
+void DrawList::triangle_uv(Vec2 a, Vec2 b, Vec2 c, Vec2 ua, Vec2 ub, Vec2 uc, Color ca, Color cb, Color cc) {
     const Rect clip = current_clip();
     if (!font_ || clip.w <= 0 || clip.h <= 0)
         return;
-    const Vec2 white = font_->white_uv();
-    vertices.push_back({a, white, ca});
-    vertices.push_back({b, white, cb});
-    vertices.push_back({c, white, cc});
+    vertices.push_back({a, ua, ca});
+    vertices.push_back({b, ub, cb});
+    vertices.push_back({c, uc, cc});
     append_command(3);
 }
 
@@ -247,26 +251,54 @@ void DrawList::circle(Vec2 center, float radius, Color color) {
 void DrawList::text(Vec2 position, std::string_view text, float size, Color color, bool bold) {
     if (!font_ || size <= 0 || color.a <= 0)
         return;
-    const float start = position.x;
-    const float scale = size / font_->base_size();
+    const float start = std::round(position.x);
+    position.x = start;
+    position.y = std::round(position.y);
     for (std::size_t cursor = 0; cursor < text.size();) {
         const auto scalar = detail::decode_utf8(text, cursor);
         if (scalar == '\n') {
             position.x = start;
-            position.y += size * 1.35f;
+            position.y += std::round(size * 1.35f);
             continue;
         }
         if (scalar == '\r')
             continue;
         if (scalar == '\t') {
-            position.x += font_->glyph(' ', bold).advance * scale * 4;
+            position.x += font_->glyph(' ', bold, size).advance * 4;
             continue;
         }
-        const auto glyph = font_->glyph(scalar, bold);
-        textured_quad({position.x + glyph.x0 * scale, position.y + glyph.y0 * scale,
-                       (glyph.x1 - glyph.x0) * scale, (glyph.y1 - glyph.y0) * scale},
-                      {glyph.u0, glyph.v0}, {glyph.u1, glyph.v1}, color);
-        position.x += glyph.advance * scale;
+        const auto glyph = font_->glyph(scalar, bold, size);
+        const float width = glyph.x1 - glyph.x0;
+        const float height = glyph.y1 - glyph.y0;
+        if (width > 0 && height > 0)
+            textured_quad({std::round(position.x + glyph.x0), std::round(position.y + glyph.y0), std::round(width),
+                           std::round(height)},
+                          {glyph.u0, glyph.v0}, {glyph.u1, glyph.v1}, color);
+        position.x += glyph.advance;
+    }
+}
+
+void DrawList::image(Rect bounds, const Image &image, Color tint, float radius) {
+    if (!font_ || bounds.w <= 0 || bounds.h <= 0 || tint.a <= 0)
+        return;
+    Vec2 uv0, uv1;
+    if (!font_->image_uv(image, uv0, uv1))
+        return;
+    const auto points = radius > 0 ? rounded_points(bounds, radius)
+                                   : std::vector<Vec2>{{bounds.x, bounds.y},
+                                                       {bounds.x + bounds.w, bounds.y},
+                                                       {bounds.x + bounds.w, bounds.y + bounds.h},
+                                                       {bounds.x, bounds.y + bounds.h}};
+    const auto uv_at = [&](Vec2 point) {
+        const float u = std::clamp((point.x - bounds.x) / bounds.w, 0.0f, 1.0f);
+        const float v = std::clamp((point.y - bounds.y) / bounds.h, 0.0f, 1.0f);
+        return Vec2{uv0.x + (uv1.x - uv0.x) * u, uv0.y + (uv1.y - uv0.y) * v};
+    };
+    const Vec2 center{bounds.x + bounds.w * 0.5f, bounds.y + bounds.h * 0.5f};
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const auto next = (i + 1) % points.size();
+        triangle_uv(center, points[i], points[next], uv_at(center), uv_at(points[i]), uv_at(points[next]), tint,
+                    tint, tint);
     }
 }
 
@@ -282,12 +314,36 @@ void DrawList::scene(const SceneView &view) {
     commands.push_back({DrawCommand::Kind::scene, 0, 0, clip, static_cast<std::uint32_t>(scenes.size() - 1)});
 }
 
-Ui::Ui() = default;
+Ui::Ui() : draw_(std::make_unique<DrawList>()) {}
+Ui::~Ui() = default;
+
+DrawList &fluid_draw_list(Ui &ui) { return *ui.draw_; }
+const DrawList &fluid_draw_list(const Ui &ui) { return *ui.draw_; }
+
+float Ui::shape_radius(BackgroundShape shape, Rect bounds, float radius) const {
+    switch (shape) {
+    case BackgroundShape::rectangle:
+        return 0;
+    case BackgroundShape::circle:
+        return std::min(bounds.w, bounds.h) * 0.5f;
+    case BackgroundShape::rounded_rectangle:
+        return std::max(0.0f, radius);
+    }
+    return std::max(0.0f, radius);
+}
+
+void Ui::paint_fill(Rect bounds, BackgroundShape shape, float radius, Color top,
+                    const std::optional<Color> &gradient) {
+    const Color bottom = gradient.value_or(top);
+    if (top.a <= 0 && bottom.a <= 0)
+        return;
+    draw_->gradient(bounds, top, bottom, shape_radius(shape, bounds, radius));
+}
 
 void Ui::begin_frame(const InputState &input, float width, float height, float dt) {
     input_ = input;
     time_ += std::clamp(dt, 0.0f, 0.25f);
-    draw_.reset(width, height, font_);
+    draw_->reset(width, height, font_);
     focus_order_.clear();
     if (input.mouse_pressed) {
         active_.clear();
@@ -328,7 +384,7 @@ void Ui::register_widget(std::string_view id) {
 }
 
 bool Ui::hovered(Rect bounds) const {
-    return bounds.contains(input_.mouse) && draw_.current_clip().contains(input_.mouse);
+    return bounds.contains(input_.mouse) && draw_->current_clip().contains(input_.mouse);
 }
 
 bool Ui::hit(std::string_view id, Rect bounds) {
@@ -349,53 +405,145 @@ bool Ui::hit(std::string_view id, Rect bounds) {
 
 void Ui::focus_outline(std::string_view id, Rect bounds, float radius) {
     if (focused_ == id && keyboard_focus_)
-        draw_.outline(inset(bounds, -3), theme_.accent.opacity(0.8f), radius + 3, 1.5f);
+        draw_->outline(inset(bounds, -3), theme_.accent.opacity(0.8f), radius + 3, 1.5f);
 }
 
 bool Ui::button(std::string_view id, Rect bounds, std::string_view label, bool primary, bool selected) {
+    ButtonStyle style;
+    style.background = primary ? theme_.accent : selected ? theme_.accent.opacity(0.16f) : theme_.elevated;
+    style.text = primary ? theme_.accent_text : selected ? theme_.accent : theme_.text;
+    if (!primary)
+        style.border = selected ? theme_.accent.opacity(0.38f) : theme_.border.opacity(0.8f);
+    return button(id, bounds, label, style);
+}
+
+bool Ui::button(std::string_view id, Rect bounds, std::string_view label, const ButtonStyle &style) {
     const bool clicked = hit(id, bounds);
-    Color fill = primary ? theme_.accent : selected ? theme_.accent.opacity(0.16f) : theme_.elevated;
+    Color fill = style.background.value_or(theme_.elevated);
     if (hovered(bounds))
-        fill =
-            mix(fill, primary ? Color::hex(0xFFFFFF) : theme_.text.opacity(fill.a), primary ? 0.08f : 0.035f);
+        fill = mix(fill, Color{1, 1, 1, fill.a}, 0.08f);
     if (active_ == id && input_.mouse_down)
         fill = mix(fill, theme_.background, 0.16f);
-    draw_.rect(bounds, fill, 8);
-    if (!primary)
-        draw_.outline(bounds, selected ? theme_.accent.opacity(0.38f) : theme_.border.opacity(0.8f), 8);
-    const float size = 13;
-    draw_.push_clip(inset(bounds, 5));
-    draw_.text({bounds.x + (bounds.w - draw_.text_width(label, size, true)) * 0.5f,
-                bounds.y + (bounds.h - size) * 0.5f - 0.5f},
-               label, size,
-               primary    ? theme_.accent_text
-               : selected ? theme_.accent
-                          : theme_.text,
-               true);
-    draw_.pop_clip();
-    focus_outline(id, bounds, 8);
+    BackgroundedTextStyle face;
+    face.text = style.text;
+    face.border = style.border;
+    face.image = style.image;
+    face.shape = style.shape;
+    face.gradient = style.gradient;
+    face.align = style.align;
+    face.padding = style.padding;
+    face.radius = style.radius;
+    face.font_size = style.font_size;
+    face.bold = style.bold;
+    if (style.gradient) {
+        Color bottom = *style.gradient;
+        if (hovered(bounds))
+            bottom = mix(bottom, Color{1, 1, 1, bottom.a}, 0.08f);
+        if (active_ == id && input_.mouse_down)
+            bottom = mix(bottom, theme_.background, 0.16f);
+        face.gradient = bottom;
+    }
+    if (style.image && !style.background) {
+        if (active_ == id && input_.mouse_down)
+            face.background = mix(Color{1, 1, 1, 1}, theme_.background, 0.16f);
+    } else
+        face.background = fill;
+    paint_backgrounded_text(bounds, label, face);
+    focus_outline(id, bounds, shape_radius(style.shape, bounds, style.radius));
     return clicked;
 }
 
-bool Ui::toggle(std::string_view id, Rect bounds, bool &value) {
+void Ui::paint_backgrounded_text(Rect bounds, std::string_view label, const BackgroundedTextStyle &style) {
+    const float radius = shape_radius(style.shape, bounds, style.radius);
+    if (style.image) {
+        const Color tint = style.background.value_or(Color{1, 1, 1, 1});
+        draw_->image(bounds, style.image, tint, radius);
+    } else if (style.background || style.gradient) {
+        const Color top = style.background ? *style.background : *style.gradient;
+        paint_fill(bounds, style.shape, style.radius, top, style.gradient);
+    }
+    if (style.border && style.border->a > 0)
+        draw_->outline(bounds, *style.border, radius);
+    if (label.empty() || style.font_size <= 0)
+        return;
+    const float size = style.font_size;
+    const float pad = std::max(0.0f, style.padding);
+    const auto ink = font_.ink(label, size, style.bold);
+    const float ink_height = std::max(0.0f, ink.bottom - ink.top);
+    float x = bounds.x + (bounds.w - ink.width) * 0.5f;
+    if (style.align == TextAlign::left)
+        x = bounds.x + pad;
+    else if (style.align == TextAlign::right)
+        x = bounds.x + bounds.w - pad - ink.width;
+    const float y = bounds.y + (bounds.h - ink_height) * 0.5f - ink.top;
+    draw_->push_clip(inset(bounds, std::min(pad, 4.0f)));
+    draw_->text({x, y}, label, size, style.text.value_or(theme_.text), style.bold);
+    draw_->pop_clip();
+}
+
+void Ui::backgrounded_text(Rect bounds, std::string_view text, const BackgroundedTextStyle &style) {
+    paint_backgrounded_text(bounds, text, style);
+}
+
+bool Ui::selection_list(std::string_view id, Rect bounds, float item_height,
+                        std::span<const std::string_view> items, int &selected,
+                        const SelectionListStyle &style) {
+    if (id.empty() || item_height <= 0 || bounds.w <= 0 || bounds.h <= 0 || items.empty())
+        return false;
+    const float gap = std::max(0.0f, style.gap);
+    bool activated = false;
+    draw_->push_clip(bounds);
+    for (std::size_t index = 0; index < items.size(); ++index) {
+        const Rect row{bounds.x, bounds.y + static_cast<float>(index) * (item_height + gap), bounds.w,
+                       item_height};
+        if (row.y >= bounds.y + bounds.h)
+            break;
+        const std::string row_id = std::string(id) + "#" + std::to_string(index);
+        const bool chosen = static_cast<int>(index) == selected;
+        if (hit(row_id, row)) {
+            selected = static_cast<int>(index);
+            activated = true;
+        }
+        BackgroundedTextStyle face = chosen ? style.selected : style.item;
+        if (!chosen && style.hover_background && hovered(row))
+            face.background = *style.hover_background;
+        paint_backgrounded_text(row, items[index], face);
+        focus_outline(row_id, row, shape_radius(face.shape, row, face.radius));
+    }
+    draw_->pop_clip();
+    return activated;
+}
+
+void Ui::set_typeface(std::string regular_path, std::string bold_path) {
+    font_.set_typeface(std::move(regular_path), std::move(bold_path));
+}
+
+Image Ui::add_image(const std::uint8_t *rgba, int width, int height) {
+    return font_.add_image(rgba, width, height);
+}
+
+Image Ui::add_image_file(const std::string &path) { return font_.add_image_file(path); }
+
+bool Ui::toggle(std::string_view id, Rect bounds, bool &value, BackgroundShape shape,
+                std::optional<Color> gradient) {
     const bool clicked = hit(id, bounds);
     if (clicked)
         value = !value;
     const float height = std::min(bounds.h, 22.0f), width = std::min(bounds.w, 40.0f);
     const Rect track{bounds.x, bounds.y + (bounds.h - height) * 0.5f, width, height};
-    draw_.rect(track,
-               value             ? theme_.accent
-               : hovered(bounds) ? mix(theme_.border, theme_.muted, 0.18f)
-                                 : theme_.border,
-               height * 0.5f);
+    const Color fill = value             ? theme_.accent
+                       : hovered(bounds) ? mix(theme_.border, theme_.muted, 0.18f)
+                                         : theme_.border;
+    paint_fill(track, shape, 4.0f, fill, gradient);
     const Vec2 center{track.x + height * 0.5f + (value ? width - height : 0), track.y + height * 0.5f};
-    draw_.circle({center.x, center.y + 1}, std::max(0.0f, height * 0.5f - 3), Color::hex(0x000000, 0.10f));
-    draw_.circle(center, std::max(0.0f, height * 0.5f - 3), value ? theme_.accent_text : theme_.text);
-    focus_outline(id, track, height * 0.5f);
+    draw_->circle({center.x, center.y + 1}, std::max(0.0f, height * 0.5f - 3), Color::hex(0x000000, 0.10f));
+    draw_->circle(center, std::max(0.0f, height * 0.5f - 3), value ? theme_.accent_text : theme_.text);
+    focus_outline(id, track, shape_radius(shape, track, 4.0f));
     return clicked;
 }
 
-bool Ui::slider(std::string_view id, Rect bounds, float &value, float minimum, float maximum) {
+bool Ui::slider(std::string_view id, Rect bounds, float &value, float minimum, float maximum,
+                BackgroundShape shape, std::optional<Color> gradient) {
     if (id.empty() || bounds.w <= 0 || bounds.h <= 0)
         return false;
     register_widget(id);
@@ -426,20 +574,22 @@ bool Ui::slider(std::string_view id, Rect bounds, float &value, float minimum, f
     }
     const float amount = maximum > minimum ? (value - minimum) / (maximum - minimum) : 0;
     const float y = bounds.y + bounds.h * 0.5f;
-    draw_.rect({left, y - 2, width, 4}, theme_.border, 2);
+    const Rect track{left, y - 2, width, 4};
+    paint_fill(track, shape, 2.0f, theme_.border, std::nullopt);
     if (amount > 0)
-        draw_.rect({left, y - 2, width * amount, 4}, theme_.accent, 2);
+        paint_fill({left, y - 2, width * amount, 4}, shape, 2.0f, theme_.accent, gradient);
     const Vec2 knob{left + width * amount, y};
     if (hovered(bounds) || active_ == id)
-        draw_.circle(knob, 10, theme_.accent.opacity(0.13f));
-    draw_.circle({knob.x, knob.y + 1}, 6, Color::hex(0x000000, 0.18f));
-    draw_.circle(knob, 6, theme_.accent);
-    draw_.circle(knob, 2, theme_.accent_text.opacity(0.5f));
+        draw_->circle(knob, 10, theme_.accent.opacity(0.13f));
+    draw_->circle({knob.x, knob.y + 1}, 6, Color::hex(0x000000, 0.18f));
+    draw_->circle(knob, 6, theme_.accent);
+    draw_->circle(knob, 2, theme_.accent_text.opacity(0.5f));
     focus_outline(id, {bounds.x, y - 10, bounds.w, 20}, 6);
     return value != old;
 }
 
-bool Ui::text_field(std::string_view id, Rect bounds, std::string &value, std::string_view placeholder) {
+bool Ui::text_field(std::string_view id, Rect bounds, std::string &value, std::string_view placeholder,
+                    BackgroundShape shape, std::optional<Color> gradient) {
     if (id.empty())
         return false;
     register_widget(id);
@@ -462,8 +612,8 @@ bool Ui::text_field(std::string_view id, Rect bounds, std::string &value, std::s
         state.cursor = 0;
         while (state.cursor < value.size()) {
             const auto next = detail::next_utf8(value, state.cursor);
-            const float before = draw_.text_width(std::string_view(value).substr(0, state.cursor), size);
-            const float after = draw_.text_width(std::string_view(value).substr(0, next), size);
+            const float before = draw_->text_width(std::string_view(value).substr(0, state.cursor), size);
+            const float after = draw_->text_width(std::string_view(value).substr(0, next), size);
             if (offset < (before + after) * 0.5f)
                 break;
             state.cursor = next;
@@ -532,48 +682,56 @@ bool Ui::text_field(std::string_view id, Rect bounds, std::string &value, std::s
         state.scroll = 0;
     }
     const float available = std::max(0.0f, bounds.w - padding * 2);
-    const float cursor_x = draw_.text_width(std::string_view(value).substr(0, state.cursor), size);
+    const float cursor_x = draw_->text_width(std::string_view(value).substr(0, state.cursor), size);
     if (focused) {
         state.scroll = std::max(state.scroll, cursor_x - available + 2);
         state.scroll = std::min(state.scroll, cursor_x);
         state.scroll = std::max(0.0f, state.scroll);
     }
-    draw_.rect(bounds, theme_.background.opacity(0.72f), 8);
-    draw_.outline(bounds,
+    const float field_radius = shape_radius(shape, bounds, 8.0f);
+    paint_fill(bounds, shape, 8.0f, theme_.background.opacity(0.72f), gradient);
+    draw_->outline(bounds,
                   focused           ? theme_.accent.opacity(0.85f)
                   : hovered(bounds) ? theme_.muted.opacity(0.5f)
                                     : theme_.border,
-                  8);
+                  field_radius);
     const float y = bounds.y + (bounds.h - size) * 0.5f - 0.5f;
-    draw_.push_clip({bounds.x + padding - 1, bounds.y + 3, available + 2, std::max(0.0f, bounds.h - 6)});
+    draw_->push_clip({bounds.x + padding - 1, bounds.y + 3, available + 2, std::max(0.0f, bounds.h - 6)});
     if (focused && state.select_all)
-        draw_.rect({bounds.x + padding - state.scroll, y - 2, draw_.text_width(value, size), size + 4},
+        draw_->rect({bounds.x + padding - state.scroll, y - 2, draw_->text_width(value, size), size + 4},
                    theme_.accent.opacity(0.25f), 2);
-    draw_.text({bounds.x + padding - state.scroll, y}, value.empty() ? placeholder : std::string_view(value),
+    draw_->text({bounds.x + padding - state.scroll, y}, value.empty() ? placeholder : std::string_view(value),
                size, value.empty() ? theme_.muted : theme_.text);
     if (focused && !state.select_all && (changed || std::fmod(time_, 1.0f) < 0.6f)) {
         const float caret = bounds.x + padding + cursor_x - state.scroll;
-        draw_.rect({caret, y - 1, 1.25f, size + 2}, theme_.accent, 0.5f);
+        draw_->rect({caret, y - 1, 1.25f, size + 2}, theme_.accent, 0.5f);
     }
-    draw_.pop_clip();
-    focus_outline(id, bounds, 8);
+    draw_->pop_clip();
+    focus_outline(id, bounds, field_radius);
     return changed;
 }
 
 void Ui::label(Vec2 position, std::string_view text, float size, bool bold) {
-    draw_.text(position, text, size, theme_.text, bold);
+    label(position, text, size, theme_.text, bold);
 }
-void Ui::panel(Rect bounds, float radius) {
-    draw_.rect({bounds.x, bounds.y + 3, bounds.w, bounds.h}, Color::hex(0x000000, 0.06f), radius);
-    draw_.rect(bounds, theme_.panel, radius);
-    draw_.outline(bounds, theme_.border.opacity(0.65f), radius);
+void Ui::label(Vec2 position, std::string_view text, float size, Color color, bool bold) {
+    draw_->text(position, text, size, color, bold);
 }
-void Ui::progress(Rect bounds, float value, Color color) {
-    const float radius = std::min(bounds.w, bounds.h) * 0.5f;
-    draw_.rect(bounds, theme_.border, radius);
+void Ui::line(Vec2 from, Vec2 to, Color color, float thickness) { draw_->line(from, to, color, thickness); }
+void Ui::push_clip(Rect clip) { draw_->push_clip(clip); }
+void Ui::pop_clip() { draw_->pop_clip(); }
+void Ui::scene(const SceneView &view) { draw_->scene(view); }
+void Ui::panel(Rect bounds, float radius, BackgroundShape shape, std::optional<Color> gradient) {
+    const float corner = shape_radius(shape, bounds, radius);
+    draw_->rect({bounds.x, bounds.y + 3, bounds.w, bounds.h}, Color::hex(0x000000, 0.06f), corner);
+    paint_fill(bounds, shape, radius, theme_.panel, gradient);
+    draw_->outline(bounds, theme_.border.opacity(0.65f), corner);
+}
+void Ui::progress(Rect bounds, float value, Color color, BackgroundShape shape, std::optional<Color> gradient) {
+    paint_fill(bounds, shape, 4.0f, theme_.border, std::nullopt);
     value = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0;
     if (value > 0)
-        draw_.rect({bounds.x, bounds.y, bounds.w * value, bounds.h}, color, radius);
+        paint_fill({bounds.x, bounds.y, bounds.w * value, bounds.h}, shape, 4.0f, color, gradient);
 }
 
 } // namespace Fluid

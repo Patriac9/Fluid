@@ -60,6 +60,40 @@ Fluid_Vec2 vec(Fluid::Vec2 value) { return {value.x, value.y}; }
 Fluid::Rect rect(Fluid_Rect value) { return {value.x, value.y, value.w, value.h}; }
 Fluid_Rect rect(Fluid::Rect value) { return {value.x, value.y, value.w, value.h}; }
 Fluid::Color color(Fluid_Color value) { return {value.r, value.g, value.b, value.a}; }
+
+Fluid::BackgroundShape background_shape(int shape) {
+    switch (shape) {
+    case 1:
+        return Fluid::BackgroundShape::rectangle;
+    case 2:
+        return Fluid::BackgroundShape::circle;
+    default:
+        return Fluid::BackgroundShape::rounded_rectangle;
+    }
+}
+
+template <typename Style> Fluid::BackgroundedTextStyle backgrounded_style(const Style &style) {
+    Fluid::BackgroundedTextStyle face;
+    if (style.use_background)
+        face.background = color(style.background);
+    if (style.use_gradient)
+        face.gradient = color(style.gradient);
+    face.shape = background_shape(style.shape);
+    if (style.use_text_color)
+        face.text = color(style.text_color);
+    if (style.use_border)
+        face.border = color(style.border);
+    if (style.image_id >= 0)
+        face.image.id = style.image_id;
+    face.align = style.align == 1 ? Fluid::TextAlign::left
+                 : style.align >= 2 ? Fluid::TextAlign::right
+                                    : Fluid::TextAlign::center;
+    face.padding = style.padding;
+    face.radius = style.radius;
+    face.font_size = style.font_size;
+    face.bold = style.bold != 0;
+    return face;
+}
 Fluid_Color color(Fluid::Color value) { return {value.r, value.g, value.b, value.a}; }
 
 Fluid::Theme theme(Fluid_Theme value) {
@@ -490,10 +524,6 @@ int fluid_window_dlss_available(const Fluid_Window *window) {
     return window && window->dlss_available() ? 1 : 0;
 }
 
-Fluid_DrawList *fluid_ui_draw(Fluid_Ui *ui) {
-    return ui ? reinterpret_cast<Fluid_DrawList *>(&reinterpret_cast<Fluid::Ui *>(ui)->draw()) : nullptr;
-}
-
 void fluid_ui_theme(const Fluid_Ui *ui, Fluid_Theme *out) {
     if (!ui || !out)
         return;
@@ -506,12 +536,110 @@ void fluid_ui_set_theme(Fluid_Ui *ui, Fluid_Theme value) {
     reinterpret_cast<Fluid::Ui *>(ui)->theme() = theme(value);
 }
 
+int fluid_ui_set_typeface(Fluid_Ui *ui, const char *regular_path, const char *bold_path) {
+    if (!ui)
+        return 0;
+    try {
+        reinterpret_cast<Fluid::Ui *>(ui)->set_typeface(empty_if_null(regular_path), empty_if_null(bold_path));
+        clear_error();
+        return 1;
+    } catch (const std::exception &error) {
+        set_error(error);
+        return 0;
+    }
+}
+
+int fluid_ui_add_image(Fluid_Ui *ui, const unsigned char *rgba, int width, int height) {
+    if (!ui)
+        return -1;
+    try {
+        const int id = reinterpret_cast<Fluid::Ui *>(ui)->add_image(rgba, width, height).id;
+        clear_error();
+        return id;
+    } catch (const std::exception &error) {
+        set_error(error);
+        return -1;
+    }
+}
+
+int fluid_ui_add_image_file(Fluid_Ui *ui, const char *path) {
+    if (!ui)
+        return -1;
+    try {
+        const int id = reinterpret_cast<Fluid::Ui *>(ui)->add_image_file(empty_if_null(path)).id;
+        clear_error();
+        return id;
+    } catch (const std::exception &error) {
+        set_error(error);
+        return -1;
+    }
+}
+
 int fluid_ui_button(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, const char *label, int primary,
                     int selected) {
     if (!ui)
         return 0;
     return ok_bool(reinterpret_cast<Fluid::Ui *>(ui)->button(empty_if_null(id), rect(bounds),
                                                             empty_if_null(label), primary != 0, selected != 0));
+}
+
+int fluid_ui_button_styled(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, const char *label,
+                           const Fluid_ButtonStyle *style) {
+    if (!ui || !style)
+        return 0;
+    Fluid::ButtonStyle button;
+    if (style->use_background)
+        button.background = color(style->background);
+    if (style->use_gradient)
+        button.gradient = color(style->gradient);
+    button.shape = background_shape(style->shape);
+    if (style->use_text_color)
+        button.text = color(style->text_color);
+    if (style->use_border)
+        button.border = color(style->border);
+    if (style->image_id >= 0)
+        button.image.id = style->image_id;
+    button.align = style->align == 1 ? Fluid::TextAlign::left
+                   : style->align >= 2 ? Fluid::TextAlign::right
+                                       : Fluid::TextAlign::center;
+    button.padding = style->padding;
+    button.radius = style->radius;
+    button.font_size = style->font_size;
+    button.bold = style->bold != 0;
+    return ok_bool(reinterpret_cast<Fluid::Ui *>(ui)->button(empty_if_null(id), rect(bounds),
+                                                            empty_if_null(label), button));
+}
+
+void fluid_ui_backgrounded_text(Fluid_Ui *ui, Fluid_Rect bounds, const char *text,
+                                const Fluid_BackgroundedTextStyle *style) {
+    if (!ui || !style)
+        return;
+    reinterpret_cast<Fluid::Ui *>(ui)->backgrounded_text(rect(bounds), empty_if_null(text),
+                                                        backgrounded_style(*style));
+    clear_error();
+}
+
+int fluid_ui_selection_list(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, float item_height,
+                            const char *const *labels, int count, int *selected,
+                            const Fluid_BackgroundedTextStyle *item,
+                            const Fluid_BackgroundedTextStyle *selected_style, int use_hover,
+                            Fluid_Color hover, float gap) {
+    if (!ui || !selected || !item || !selected_style || !labels || count <= 0)
+        return 0;
+    std::vector<std::string_view> names;
+    names.reserve(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i)
+        names.emplace_back(empty_if_null(labels[i]));
+    Fluid::SelectionListStyle list;
+    list.item = backgrounded_style(*item);
+    list.selected = backgrounded_style(*selected_style);
+    list.gap = gap;
+    if (use_hover)
+        list.hover_background = color(hover);
+    const bool activated =
+        reinterpret_cast<Fluid::Ui *>(ui)->selection_list(empty_if_null(id), rect(bounds), item_height, names,
+                                                         *selected, list);
+    return ok_bool(activated);
 }
 
 int fluid_ui_toggle(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, int *value) {
@@ -579,65 +707,24 @@ float fluid_ui_measure_text(const Fluid_Ui *ui, const char *text, float size, in
     return reinterpret_cast<const Fluid::Ui *>(ui)->font().measure(empty_if_null(text), size, bold != 0);
 }
 
-void fluid_draw_push_clip(Fluid_DrawList *draw, Fluid_Rect clip) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->push_clip(rect(clip));
+void fluid_ui_line(Fluid_Ui *ui, Fluid_Vec2 from, Fluid_Vec2 to, Fluid_Color line, float thickness) {
+    if (ui)
+        reinterpret_cast<Fluid::Ui *>(ui)->line(vec(from), vec(to), color(line), thickness);
 }
 
-void fluid_draw_pop_clip(Fluid_DrawList *draw) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->pop_clip();
+void fluid_ui_push_clip(Fluid_Ui *ui, Fluid_Rect clip) {
+    if (ui)
+        reinterpret_cast<Fluid::Ui *>(ui)->push_clip(rect(clip));
 }
 
-Fluid_Rect fluid_draw_current_clip(const Fluid_DrawList *draw) {
-    if (!draw)
-        return {};
-    return rect(reinterpret_cast<const Fluid::DrawList *>(draw)->current_clip());
+void fluid_ui_pop_clip(Fluid_Ui *ui) {
+    if (ui)
+        reinterpret_cast<Fluid::Ui *>(ui)->pop_clip();
 }
 
-void fluid_draw_rect(Fluid_DrawList *draw, Fluid_Rect bounds, Fluid_Color fill, float radius) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->rect(rect(bounds), color(fill), radius);
-}
-
-void fluid_draw_gradient(Fluid_DrawList *draw, Fluid_Rect bounds, Fluid_Color top, Fluid_Color bottom,
-                         float radius) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->gradient(rect(bounds), color(top), color(bottom), radius);
-}
-
-void fluid_draw_outline(Fluid_DrawList *draw, Fluid_Rect bounds, Fluid_Color line, float radius,
-                        float thickness) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->outline(rect(bounds), color(line), radius, thickness);
-}
-
-void fluid_draw_line(Fluid_DrawList *draw, Fluid_Vec2 from, Fluid_Vec2 to, Fluid_Color line, float thickness) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->line(vec(from), vec(to), color(line), thickness);
-}
-
-void fluid_draw_circle(Fluid_DrawList *draw, Fluid_Vec2 center, float radius, Fluid_Color fill) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->circle(vec(center), radius, color(fill));
-}
-
-void fluid_draw_text(Fluid_DrawList *draw, Fluid_Vec2 position, const char *text, float size, Fluid_Color fill,
-                     int bold) {
-    if (draw)
-        reinterpret_cast<Fluid::DrawList *>(draw)->text(vec(position), empty_if_null(text), size, color(fill),
-                                                        bold != 0);
-}
-
-void fluid_draw_scene(Fluid_DrawList *draw, const Fluid_SceneView *view) {
-    if (draw && view)
-        reinterpret_cast<Fluid::DrawList *>(draw)->scene(scene(*view));
-}
-
-float fluid_draw_text_width(const Fluid_DrawList *draw, const char *text, float size, int bold) {
-    if (!draw)
-        return 0;
-    return reinterpret_cast<const Fluid::DrawList *>(draw)->text_width(empty_if_null(text), size, bold != 0);
+void fluid_ui_scene(Fluid_Ui *ui, const Fluid_SceneView *view) {
+    if (ui && view)
+        reinterpret_cast<Fluid::Ui *>(ui)->scene(scene(*view));
 }
 
 } // extern "C"

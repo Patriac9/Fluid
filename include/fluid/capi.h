@@ -16,7 +16,6 @@ extern "C" {
 typedef struct Fluid_Window Fluid_Window;
 typedef struct Fluid_Mesh Fluid_Mesh;
 typedef struct Fluid_Ui Fluid_Ui;
-typedef struct Fluid_DrawList Fluid_DrawList;
 
 typedef struct Fluid_Vec2 {
     float x;
@@ -157,11 +156,51 @@ FLUID_C_API void fluid_window_set_dlss(Fluid_Window *window, int enabled);
 FLUID_C_API int fluid_window_dlss(const Fluid_Window *window);
 FLUID_C_API int fluid_window_dlss_available(const Fluid_Window *window);
 
-FLUID_C_API Fluid_DrawList *fluid_ui_draw(Fluid_Ui *ui);
 FLUID_C_API void fluid_ui_theme(const Fluid_Ui *ui, Fluid_Theme *out);
 FLUID_C_API void fluid_ui_set_theme(Fluid_Ui *ui, Fluid_Theme theme);
+typedef struct Fluid_ButtonStyle {
+    Fluid_Color background;
+    int use_background;
+    Fluid_Color text_color;
+    int use_text_color;
+    Fluid_Color border;
+    int use_border;
+    int image_id;
+    int align; /* 0 center, 1 left, 2 right */
+    float padding;
+    float radius;
+    float font_size;
+    int bold;
+    int shape; /* 0 rounded rectangle, 1 rectangle, 2 circle */
+    Fluid_Color gradient;
+    int use_gradient;
+} Fluid_ButtonStyle;
+
+typedef struct Fluid_BackgroundedTextStyle {
+    Fluid_Color background;
+    int use_background;
+    Fluid_Color text_color;
+    int use_text_color;
+    Fluid_Color border;
+    int use_border;
+    int image_id;
+    int align; /* 0 center, 1 left, 2 right */
+    float padding;
+    float radius;
+    float font_size;
+    int bold;
+    int shape; /* 0 rounded rectangle, 1 rectangle, 2 circle */
+    Fluid_Color gradient;
+    int use_gradient;
+} Fluid_BackgroundedTextStyle;
+
+FLUID_C_API int fluid_ui_set_typeface(Fluid_Ui *ui, const char *regular_path, const char *bold_path);
+FLUID_C_API int fluid_ui_add_image(Fluid_Ui *ui, const unsigned char *rgba, int width, int height);
+FLUID_C_API int fluid_ui_add_image_file(Fluid_Ui *ui, const char *path);
 FLUID_C_API int fluid_ui_button(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, const char *label,
                                int primary, int selected);
+FLUID_C_API int fluid_ui_button_styled(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, const char *label,
+                                      const Fluid_ButtonStyle *style);
 FLUID_C_API int fluid_ui_toggle(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, int *value);
 FLUID_C_API int fluid_ui_slider(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, float *value, float min,
                                float max);
@@ -170,25 +209,20 @@ FLUID_C_API int fluid_ui_text_field(Fluid_Ui *ui, const char *id, Fluid_Rect bou
 FLUID_C_API int fluid_ui_hit(Fluid_Ui *ui, const char *id, Fluid_Rect bounds);
 FLUID_C_API int fluid_ui_hovered(const Fluid_Ui *ui, Fluid_Rect bounds);
 FLUID_C_API void fluid_ui_label(Fluid_Ui *ui, Fluid_Vec2 position, const char *text, float size, int bold);
+FLUID_C_API void fluid_ui_backgrounded_text(Fluid_Ui *ui, Fluid_Rect bounds, const char *text,
+                                          const Fluid_BackgroundedTextStyle *style);
+FLUID_C_API int fluid_ui_selection_list(Fluid_Ui *ui, const char *id, Fluid_Rect bounds, float item_height,
+                                       const char *const *labels, int count, int *selected,
+                                       const Fluid_BackgroundedTextStyle *item,
+                                       const Fluid_BackgroundedTextStyle *selected_style, int use_hover,
+                                       Fluid_Color hover, float gap);
 FLUID_C_API void fluid_ui_panel(Fluid_Ui *ui, Fluid_Rect bounds, float radius);
 FLUID_C_API void fluid_ui_progress(Fluid_Ui *ui, Fluid_Rect bounds, float value, Fluid_Color color);
 FLUID_C_API float fluid_ui_measure_text(const Fluid_Ui *ui, const char *text, float size, int bold);
-
-FLUID_C_API void fluid_draw_push_clip(Fluid_DrawList *draw, Fluid_Rect clip);
-FLUID_C_API void fluid_draw_pop_clip(Fluid_DrawList *draw);
-FLUID_C_API Fluid_Rect fluid_draw_current_clip(const Fluid_DrawList *draw);
-FLUID_C_API void fluid_draw_rect(Fluid_DrawList *draw, Fluid_Rect bounds, Fluid_Color color, float radius);
-FLUID_C_API void fluid_draw_gradient(Fluid_DrawList *draw, Fluid_Rect bounds, Fluid_Color top,
-                                    Fluid_Color bottom, float radius);
-FLUID_C_API void fluid_draw_outline(Fluid_DrawList *draw, Fluid_Rect bounds, Fluid_Color color, float radius,
-                                   float thickness);
-FLUID_C_API void fluid_draw_line(Fluid_DrawList *draw, Fluid_Vec2 from, Fluid_Vec2 to, Fluid_Color color,
-                                float thickness);
-FLUID_C_API void fluid_draw_circle(Fluid_DrawList *draw, Fluid_Vec2 center, float radius, Fluid_Color color);
-FLUID_C_API void fluid_draw_text(Fluid_DrawList *draw, Fluid_Vec2 position, const char *text, float size,
-                                Fluid_Color color, int bold);
-FLUID_C_API void fluid_draw_scene(Fluid_DrawList *draw, const Fluid_SceneView *view);
-FLUID_C_API float fluid_draw_text_width(const Fluid_DrawList *draw, const char *text, float size, int bold);
+FLUID_C_API void fluid_ui_line(Fluid_Ui *ui, Fluid_Vec2 from, Fluid_Vec2 to, Fluid_Color color, float thickness);
+FLUID_C_API void fluid_ui_push_clip(Fluid_Ui *ui, Fluid_Rect clip);
+FLUID_C_API void fluid_ui_pop_clip(Fluid_Ui *ui);
+FLUID_C_API void fluid_ui_scene(Fluid_Ui *ui, const Fluid_SceneView *view);
 
 #ifdef __cplusplus
 }

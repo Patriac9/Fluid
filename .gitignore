@@ -8,6 +8,7 @@
 /install_manifest.txt
 /CTestTestfile.cmake
 /Testing/
+/Fluid_test/out
 compile_commands.json
 CMakeUserPresets.json
 
@@ -45,6 +46,9 @@ ipch/
 /.idea/
 /.vscode/
 /.cursor/
+/Fluid_test/.idea/
+/Fluid_test/.vs/
+
 
 # Fluid Studio 运行时截图与示范样例
 /snapshots/

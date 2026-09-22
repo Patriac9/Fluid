@@ -20,7 +20,14 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-Run `build/Release/FluidTest.exe` with a Visual Studio generator, or `build/FluidTest` with a single-configuration generator. If your CMake version predates your installed Visual Studio, use the newer CMake bundled with Visual Studio or a supported Ninja toolchain.
+Fluid Studio lives in `Fluid_test` and links the static `Fluid` library:
+
+```sh
+cmake -S Fluid_test -B Fluid_test/build
+cmake --build Fluid_test/build --config Release --parallel
+```
+
+Run `Fluid_test/build/Release/FluidTest.exe` with a Visual Studio generator, or `Fluid_test/build/FluidTest` with a single-configuration generator. If your CMake version predates your installed Visual Studio, use the newer CMake bundled with Visual Studio or a supported Ninja toolchain.
 
 ## Explore Fluid Studio
 
@@ -49,9 +56,7 @@ class Example : public Fluid::window {
 
     void tick() override {
         auto& controls = ui();
-        auto& draw = controls.draw();
-        const auto& theme = controls.theme();
-        draw.rect({0, 0, width(), height()}, theme.background);
+        controls.panel({0, 0, width(), height()}, 0, Fluid::BackgroundShape::rectangle);
         controls.panel({20, 20, 260, 180});
         controls.label({40, 40}, "Hello, Fluid", 24, true);
         controls.slider("roughness", {40, 85, 220, 24}, roughness, .05f, 1.f);
@@ -69,7 +74,7 @@ class Example : public Fluid::window {
         scene.camera = camera;
         scene.rotation = angle;
         scene.roughness = roughness;
-        draw.scene(scene);
+        controls.scene(scene);
     }
 };
 
@@ -80,7 +85,7 @@ int main() {
 }
 ```
 
-The draw list supports rounded panels, gradients, outlines, lines, circles, text, nested clipping, and embedded scenes in painter's order. Mesh objects referenced by a scene must remain alive through the end of the frame. Window operations and the event loop run on the main thread. `destroy()` is idempotent; normal stack destruction handles cleanup automatically.
+Widgets record into an internal draw list. Call `line`, `scene`, and `push_clip` when a control is not enough. Mesh objects referenced by a scene must remain alive through the end of the frame. Window operations and the event loop run on the main thread. `destroy()` is idempotent; normal stack destruction handles cleanup automatically.
 
 Text uses an antialiased RGBA font atlas. Fluid selects installed Segoe UI, Arial, DejaVu Sans, or Liberation Sans fonts, with an embedded fallback. It includes Latin, Greek, Cyrillic, punctuation, and arrows when the selected font supports them. UTF-8 editing is supported; complex text shaping, IME composition, and platform accessibility bridges are not implemented yet.
 

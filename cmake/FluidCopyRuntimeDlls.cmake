@@ -12,7 +12,8 @@ if(CMAKE_SCRIPT_MODE_FILE)
 
     set(_search_dirs)
     if(SEARCH_DIRS)
-        string(REPLACE "|" ";" _search_dirs "${SEARCH_DIRS}")
+        # "@@" rather than "|" — cmd.exe treats an unquoted pipe as a command separator.
+        string(REPLACE "@@" ";" _search_dirs "${SEARCH_DIRS}")
     endif()
 
     set(_path_prefix "")
@@ -125,7 +126,7 @@ function(fluid_copy_runtime_dlls target)
         endif()
     endif()
     list(REMOVE_DUPLICATES _search_dirs)
-    string(REPLACE ";" "|" _search_arg "${_search_dirs}")
+    string(REPLACE ";" "@@" _search_arg "${_search_dirs}")
 
     set(_vulkan_dll "")
     if(NOT FLUID_VULKAN_DLL)
