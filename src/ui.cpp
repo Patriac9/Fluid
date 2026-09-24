@@ -88,7 +88,17 @@ void DrawList::reset(float width, float height, const FontAtlas &font) {
     scenes.clear();
     clips_.clear();
     font_ = &font;
+    origin_ = {};
     clips_.push_back({0, 0, std::max(width, 0.0f), std::max(height, 0.0f)});
+}
+void DrawList::set_origin(Vec2 origin) { origin_ = origin; }
+void DrawList::reset_clip(Rect root) {
+    clips_.clear();
+    clips_.push_back(root);
+}
+Vec2 DrawList::to_window(Vec2 point) const { return {point.x + origin_.x, point.y + origin_.y}; }
+Rect DrawList::to_window(Rect bounds) const {
+    return {bounds.x + origin_.x, bounds.y + origin_.y, bounds.w, bounds.h};
 }
 
 Rect DrawList::current_clip() const { return clips_.empty() ? Rect{} : clips_.back(); }
@@ -103,12 +113,12 @@ void DrawList::append_command(std::uint32_t count) {
     if (!commands.empty()) {
         auto &previous = commands.back();
         if (previous.kind == DrawCommand::Kind::triangles && previous.first + previous.count == first &&
-            same_rect(previous.clip, current_clip())) {
+            same_rect(previous.clip, to_window(current_clip()))) {
             previous.count += count;
             return;
         }
     }
-    commands.push_back({DrawCommand::Kind::triangles, first, count, current_clip(), 0});
+    commands.push_back({DrawCommand::Kind::triangles, first, count, to_window(current_clip()), 0});
 }
 
 void DrawList::triangle(Vec2 a, Vec2 b, Vec2 c, Color ca, Color cb, Color cc) {
@@ -120,9 +130,9 @@ void DrawList::triangle_uv(Vec2 a, Vec2 b, Vec2 c, Vec2 ua, Vec2 ub, Vec2 uc, Co
     const Rect clip = current_clip();
     if (!font_ || clip.w <= 0 || clip.h <= 0)
         return;
-    vertices.push_back({a, ua, ca});
-    vertices.push_back({b, ub, cb});
-    vertices.push_back({c, uc, cc});
+    vertices.push_back({to_window(a), ua, ca});
+    vertices.push_back({to_window(b), ub, cb});
+    vertices.push_back({to_window(c), uc, cc});
     append_command(3);
 }
 
@@ -130,8 +140,10 @@ void DrawList::textured_quad(Rect bounds, Vec2 uv0, Vec2 uv1, Color color) {
     const Rect visible = intersect(bounds, current_clip());
     if (!font_ || visible.w <= 0 || visible.h <= 0)
         return;
-    const Vec2 a{bounds.x, bounds.y}, b{bounds.x + bounds.w, bounds.y};
-    const Vec2 c{bounds.x + bounds.w, bounds.y + bounds.h}, d{bounds.x, bounds.y + bounds.h};
+    const Vec2 a = to_window(Vec2{bounds.x, bounds.y});
+    const Vec2 b = to_window(Vec2{bounds.x + bounds.w, bounds.y});
+    const Vec2 c = to_window(Vec2{bounds.x + bounds.w, bounds.y + bounds.h});
+    const Vec2 d = to_window(Vec2{bounds.x, bounds.y + bounds.h});
     vertices.push_back({a, uv0, color});
     vertices.push_back({b, {uv1.x, uv0.y}, color});
     vertices.push_back({c, uv1, color});
@@ -310,8 +322,11 @@ void DrawList::scene(const SceneView &view) {
     const Rect clip = intersect(current_clip(), view.bounds);
     if (clip.w <= 0 || clip.h <= 0 || !view.mesh)
         return;
-    scenes.push_back(view);
-    commands.push_back({DrawCommand::Kind::scene, 0, 0, clip, static_cast<std::uint32_t>(scenes.size() - 1)});
+    SceneView placed = view;
+    placed.bounds = to_window(view.bounds);
+    scenes.push_back(placed);
+    commands.push_back(
+        {DrawCommand::Kind::scene, 0, 0, to_window(clip), static_cast<std::uint32_t>(scenes.size() - 1)});
 }
 
 Ui::Ui() : draw_(std::make_unique<DrawList>()) {}

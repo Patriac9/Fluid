@@ -36,6 +36,8 @@ class DrawList {
     std::vector<SceneView> scenes;
 
     void reset(float width, float height, const FontAtlas &font);
+    void set_origin(Vec2 origin);
+    void reset_clip(Rect root);
     void push_clip(Rect clip);
     void pop_clip();
     Rect current_clip() const;
@@ -51,7 +53,10 @@ class DrawList {
 
   private:
     const FontAtlas *font_ = nullptr;
+    Vec2 origin_{};
     std::vector<Rect> clips_;
+    Vec2 to_window(Vec2 point) const;
+    Rect to_window(Rect bounds) const;
     void triangle(Vec2 a, Vec2 b, Vec2 c, Color ca, Color cb, Color cc);
     void triangle_uv(Vec2 a, Vec2 b, Vec2 c, Vec2 ua, Vec2 ub, Vec2 uc, Color ca, Color cb, Color cc);
     void textured_quad(Rect bounds, Vec2 uv0, Vec2 uv1, Color color);

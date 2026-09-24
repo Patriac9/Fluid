@@ -64,6 +64,7 @@ window_cfg config(const DemoOptions &options) {
     cfg.window_title = "Fluid Studio | GUI & 3D playground";
     cfg.resizable = true;
     cfg.visible = !options.hidden;
+    cfg.use_default_border = options.bordered;
     return cfg;
 }
 Color blend(Color a, Color b, float t) {

@@ -10,6 +10,7 @@
 #include <string>
 
 struct window_cfg {
+    bool use_default_border = true;
     bool fullscreen = false;
     bool resizable = true;
     uint32_t width = 1440;
@@ -41,7 +42,10 @@ class window {
     const InputState &input() const;
     GLFWwindow *native_handle() const;
     float width() const;
+    // During tick(), this is the area below the custom caption. With the platform
+    // border, or outside tick(), it is the full window height.
     float height() const;
+    float caption_height() const;
     float delta_time() const;
     double elapsed_time() const;
     const std::string &device_name() const;

@@ -4,6 +4,7 @@
 #include <string>
 
 struct DemoOptions {
+    bool bordered = true;
     bool hidden = false;
     bool smoke_test = false;
     bool scene_aa = false;
